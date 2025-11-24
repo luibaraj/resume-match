@@ -23,7 +23,7 @@ DEFAULT_JOB_TITLES: Sequence[str] = (
     "Data Analyst",
 )
 DEFAULT_OUTPUT_PATH = Path("/Users/luisbarajas/Desktop/Projects/jobs.csv")
-DEFAULT_PAGES = 1
+DEFAULT_PAGES = 2
 DEFAULT_PER_PAGE = 10
 DEFAULT_COUNTRY = "us"
 DEFAULT_DATE_POSTED_FILTER = "today"
