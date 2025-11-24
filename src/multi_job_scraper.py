@@ -20,8 +20,9 @@ DEFAULT_JOB_TITLES: Sequence[str] = (
 )
 DEFAULT_OUTPUT_PATH = Path("/Users/luisbarajas/Desktop/Projects/jobs.csv")
 DEFAULT_PAGES = 1
-DEFAULT_PER_PAGE = 5
+DEFAULT_PER_PAGE = 10
 DEFAULT_COUNTRY = "us"
+DEFAULT_DATE_POSTED_FILTER = "today"
 
 
 def fetch_jobs_for_titles(
@@ -30,6 +31,7 @@ def fetch_jobs_for_titles(
     pages: int = DEFAULT_PAGES,
     per_page: int = DEFAULT_PER_PAGE,
     country: str = DEFAULT_COUNTRY,
+    date_posted: str = DEFAULT_DATE_POSTED_FILTER,
     client: JSearchClient | None = None,
 ) -> List[dict]:
     """
@@ -44,6 +46,7 @@ def fetch_jobs_for_titles(
             pages=pages,
             per_page=per_page,
             country=country,
+            date_posted=date_posted,
         )
         for job in jobs:
             job["search_query"] = title
@@ -58,6 +61,7 @@ def scrape_job_titles(
     pages: int = DEFAULT_PAGES,
     per_page: int = DEFAULT_PER_PAGE,
     country: str = DEFAULT_COUNTRY,
+    date_posted: str = DEFAULT_DATE_POSTED_FILTER,
     client: JSearchClient | None = None,
 ) -> List[dict]:
     jobs = fetch_jobs_for_titles(
@@ -65,6 +69,7 @@ def scrape_job_titles(
         pages=pages,
         per_page=per_page,
         country=country,
+        date_posted=date_posted,
         client=client,
     )
     save_csv(output_path, jobs)
