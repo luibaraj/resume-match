@@ -62,7 +62,7 @@ class MultiJobScraperTests(unittest.TestCase):
     def test_fetch_jobs_for_titles_uses_last_24_hour_default(self):
         with mock.patch("multi_job_scraper.collect_and_normalize", return_value=[]) as mock_collect:
             fetch_jobs_for_titles(["Data Scientist"], client=object())
-        self.assertEqual(mock_collect.call_args.kwargs["date_posted"], "last_24_hours")
+        self.assertEqual(mock_collect.call_args.kwargs["date_posted"], "today")
 
     def test_fetch_jobs_for_titles_handles_non_ascii(self):
         with mock.patch("multi_job_scraper.collect_and_normalize") as mock_collect:
