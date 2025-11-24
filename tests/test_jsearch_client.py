@@ -53,6 +53,7 @@ class JSearchClientTests(unittest.TestCase):
         self.assertEqual(call["params"]["country"], "us")
         self.assertEqual(call["params"]["language"], "en")
         self.assertEqual(call["headers"]["x-api-key"], "test")
+        self.assertEqual(call["timeout"], 30.0)
 
     def test_format_filters_handles_booleans_and_sequences(self):
         client = self._build_client()
@@ -84,6 +85,21 @@ class JSearchClientTests(unittest.TestCase):
 
         self.assertEqual(result, payload["data"])
         self.assertEqual(len(self.session.calls), 2)
+        self.assertEqual(self.session.calls[0]["timeout"], 30.0)
+
+    def test_custom_request_timeout(self):
+        payload = {"data": []}
+        self.session.responses.append(FakeResponse(200, payload))
+        client = JSearchClient(
+            api_key="test",
+            session=self.session,
+            rate_limit_per_sec=0,
+            max_retries=0,
+            request_timeout=45,
+        )
+
+        client.search(query="data engineer")
+        self.assertEqual(self.session.calls[0]["timeout"], 45)
 
     def test_non_retryable_error_raises(self):
         self.session.responses.append(FakeResponse(404, text="Missing"))

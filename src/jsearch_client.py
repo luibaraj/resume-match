@@ -35,6 +35,7 @@ class JSearchClient:
         max_retries: int = 4,
         backoff_factor: float = 0.75,
         session: Optional[requests.Session] = None,
+        request_timeout: float = 30.0,
     ) -> None:
         self.api_key = api_key or os.getenv("JSEARCH_API_KEY")
         if not self.api_key:
@@ -45,6 +46,7 @@ class JSearchClient:
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
         self.session = session or requests.Session()
+        self.request_timeout = request_timeout
         self._min_interval = 1.0 / self.rate_limit_per_sec if self.rate_limit_per_sec else 0
         self._last_request_at = 0.0
         self.logger = logging.getLogger(__name__)
@@ -104,7 +106,12 @@ class JSearchClient:
         for attempt in range(self.max_retries + 1):
             self._throttle()
             try:
-                response = self.session.get(url, params=params, headers=headers, timeout=10)
+                response = self.session.get(
+                    url,
+                    params=params,
+                    headers=headers,
+                    timeout=self.request_timeout,
+                )
             except requests.RequestException as exc:
                 last_error = exc
                 self._sleep_with_backoff(attempt)
