@@ -61,11 +61,15 @@ def collect_jobs(
     Collect jobs across pages. `per_page` uses the API's num_pages parameter to
     request multiple pages at once when desired.
     """
+    if per_page < 1:
+        raise ValueError("per_page must be at least 1 to retrieve results.")
+
     all_jobs: List[Dict] = []
-    for page in range(1, pages + 1):
+    for block_index in range(pages):
+        start_page = block_index * per_page + 1
         batch = client.search(
             query=query,
-            page=page,
+            page=start_page,
             num_pages=per_page,
             country=country,
             language=language,
