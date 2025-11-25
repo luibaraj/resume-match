@@ -104,6 +104,13 @@ class JSearchClient:
 
         last_error = None
         for attempt in range(self.max_retries + 1):
+            self.logger.info(
+                "Calling %s with params=%s (attempt %s/%s)",
+                url,
+                params,
+                attempt + 1,
+                self.max_retries + 1,
+            )
             self._throttle()
             try:
                 response = self.session.get(
@@ -113,17 +120,30 @@ class JSearchClient:
                     timeout=self.request_timeout,
                 )
             except requests.RequestException as exc:
+                self.logger.error("Request to %s failed: %s", url, exc, exc_info=True)
                 last_error = exc
                 self._sleep_with_backoff(attempt)
                 continue
 
             if response.status_code < 400:
+                self.logger.info(
+                    "Received %s from %s on attempt %s",
+                    response.status_code,
+                    url,
+                    attempt + 1,
+                )
                 try:
                     return response.json()
                 except ValueError as exc:
                     raise JSearchError(f"Invalid JSON from API: {exc}") from exc
 
             if response.status_code not in RETRYABLE_STATUS_CODES:
+                self.logger.error(
+                    "Non-retryable API error %s from %s: %s",
+                    response.status_code,
+                    url,
+                    response.text,
+                )
                 raise JSearchError(f"API error {response.status_code}: {response.text}")
 
             self.logger.warning(
