@@ -23,13 +23,13 @@ DEFAULT_JOB_TITLES: Sequence[str] = (
     "Data Analyst",
 )
 DEFAULT_OUTPUT_PATH = Path("/Users/luisbarajas/Desktop/Projects/jobs.csv")
-DEFAULT_PAGES = 2
-DEFAULT_PER_PAGE = 10
+DEFAULT_PAGES = 4
+DEFAULT_PER_PAGE = 5
 DEFAULT_COUNTRY = "us"
 DEFAULT_DATE_POSTED_FILTER = "today"
 DEFAULT_S3_BUCKET = os.getenv("JOB_SCRAPER_S3_BUCKET")
 DEFAULT_S3_PREFIX = os.getenv("JOB_SCRAPER_S3_PREFIX", "scraped-jobs")
-
+VERBOSE = True
 
 def _default_object_key(prefix: str | None = None) -> str:
     """Generate an S3 object key with a timestamp suffix."""
