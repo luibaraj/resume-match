@@ -21,12 +21,12 @@ def scrape_jobs(query: str, country: str, start_page: int) -> dict:
     current_page = start_page
     url = "https://api.openwebninja.com/jsearch/search"
 
-
+    num_pages = 5
     while True:
         # Each request repeats the same parameters except for the advancing page.
         params = {
             "page": current_page,
-            "num_pages": 10,
+            "num_pages": num_pages,
             "query": query,
             "country": country, 
             "date_posted": "today",
@@ -44,7 +44,7 @@ def scrape_jobs(query: str, country: str, start_page: int) -> dict:
                 f"Request to {response.url} failed with status code "
                 f"{response.status_code}: {response.reason}"
             )
-            current_page += 10
+            current_page += num_pages
             continue
 
         parsed_json = response.json()
@@ -52,6 +52,6 @@ def scrape_jobs(query: str, country: str, start_page: int) -> dict:
         if not parsed_json.get("data"):
             break # end of available data
 
-        current_page += 10
+        current_page += num_pages
         
     return {"batches": all_results}
