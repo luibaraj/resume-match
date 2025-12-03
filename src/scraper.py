@@ -2,7 +2,7 @@ import os
 import requests
 
 
-def scrape_jobs(query: str, start_page: int, num_pages: int) -> dict:
+def scrape_jobs(query: str, country: str, start_page: int) -> dict:
     """
     Call the JSearch API to fetch job search results in batches and aggregate the raw responses.
 
@@ -19,21 +19,23 @@ def scrape_jobs(query: str, start_page: int, num_pages: int) -> dict:
     api_key = os.environ["JSEARCH_API_KEY"]
     all_results = []
     current_page = start_page
-    url = "https://www.openwebninja.com/api/jsearch/search"
+    url = "https://api.openwebninja.com/jsearch/search"
+
 
     while True:
         # Each request repeats the same parameters except for the advancing page.
         params = {
             "page": current_page,
-            "numPages": num_pages,
+            "num_pages": 10,
             "query": query,
-            "location": "US",
+            "country": country, 
             "date_posted": "today",
         }
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "x-api-key": api_key,
             "Accept": "application/json",
         }
+
 
         response = requests.get(url, params=params, headers=headers)
         if response.status_code != 200:
@@ -42,15 +44,14 @@ def scrape_jobs(query: str, start_page: int, num_pages: int) -> dict:
                 f"Request to {response.url} failed with status code "
                 f"{response.status_code}: {response.reason}"
             )
-            current_page += num_pages
+            current_page += 10
             continue
 
         parsed_json = response.json()
         all_results.append(parsed_json)
-        if isinstance(parsed_json, list) and not parsed_json:
-            # Empty list marks the end of available data.
-            break
+        if not parsed_json.get("data"):
+            break # end of available data
 
-        current_page += num_pages
-
+        current_page += 10
+        
     return {"batches": all_results}
