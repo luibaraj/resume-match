@@ -17,10 +17,12 @@ class MockResponse:
 
 
 def build_mock_get(responses, captured_calls):
-    def fake_get(url, params=None, headers=None):
+    def fake_get(url, params=None, headers=None, timeout=None, **kwargs):
         index = len(captured_calls)
         response_data = responses[index]
-        captured_calls.append({"url": url, "params": params, "headers": headers})
+        captured_calls.append(
+            {"url": url, "params": params, "headers": headers, "timeout": timeout}
+        )
         full_url = url
         if params:
             full_url = f"{url}?{urlencode(params)}"
@@ -89,7 +91,7 @@ def test_skips_failed_batch_and_continues(monkeypatch, capsys):
     assert "status code 500" in output
     assert len(captured_calls) == 3
     pages = [call["params"]["page"] for call in captured_calls]
-    assert pages == [5, 15, 25]
+    assert pages == [5, 5, 15]
 
 
 def test_current_page_increments_by_ten_after_success(monkeypatch):
@@ -124,11 +126,11 @@ def test_increments_after_failure(monkeypatch, capsys):
     output = capsys.readouterr().out
 
     pages = [call["params"]["page"] for call in captured_calls]
-    assert pages == [2, 12]
+    assert pages == [2, 2]
     assert "Bad Request" in output
 
 
-def test_headers_include_authorization_and_accept(monkeypatch):
+def test_headers_include_api_key_and_accept(monkeypatch):
     api_key = "expected_key"
     monkeypatch.setenv("JSEARCH_API_KEY", api_key)
     responses = [{"status": 200, "json": []}]
@@ -140,7 +142,7 @@ def test_headers_include_authorization_and_accept(monkeypatch):
     scraper.scrape_jobs("java", country="US", start_page=0)
     headers = captured_calls[0]["headers"]
 
-    assert headers["Authorization"] == f"Bearer {api_key}"
+    assert headers["x-api-key"] == api_key
     assert headers["Accept"] == "application/json"
 
 
@@ -237,3 +239,46 @@ def test_batches_preserve_order(monkeypatch):
 
     assert result["batches"][0]["data"] == ["batch1"]
     assert result["batches"][1]["data"] == ["batch2"]
+
+
+def test_retries_before_success(monkeypatch):
+    monkeypatch.setenv("JSEARCH_API_KEY", "token")
+    responses = [
+        {"status": 502, "json": {"error": "Bad Gateway"}, "reason": "Bad Gateway"},
+        {"status": 200, "json": []},
+    ]
+    captured_calls = []
+    monkeypatch.setattr(
+        scraper.requests, "get", build_mock_get(responses, captured_calls)
+    )
+    sleeps = []
+    monkeypatch.setattr(scraper.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    scraper.scrape_jobs("retry", country="US", start_page=0)
+
+    assert len(captured_calls) == 2
+    assert [call["params"]["page"] for call in captured_calls] == [0, 0]
+    assert sleeps == [1]
+
+
+def test_gives_up_after_max_attempts(monkeypatch):
+    monkeypatch.setenv("JSEARCH_API_KEY", "token")
+    responses = [
+        {"status": 502, "json": {"error": "Bad Gateway"}, "reason": "Bad Gateway"},
+        {"status": 502, "json": {"error": "Bad Gateway"}, "reason": "Bad Gateway"},
+        {"status": 502, "json": {"error": "Bad Gateway"}, "reason": "Bad Gateway"},
+        {"status": 200, "json": []},
+    ]
+    captured_calls = []
+    monkeypatch.setattr(
+        scraper.requests, "get", build_mock_get(responses, captured_calls)
+    )
+    sleeps = []
+    monkeypatch.setattr(scraper.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    scraper.scrape_jobs("give up", country="US", start_page=0)
+
+    pages = [call["params"]["page"] for call in captured_calls]
+    assert pages[:3] == [0, 0, 0]
+    assert pages[3] == 10
+    assert sleeps == [1, 2]
