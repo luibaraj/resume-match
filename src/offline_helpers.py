@@ -9,9 +9,10 @@ import time
 import os
 
 from openai import OpenAI
+import chromadb
+from chromadb.api.models.Collection import Collection
 
 from .normalize_helpers import clean_text_blob
-
 
 
 
@@ -185,22 +186,77 @@ def embed_job_postings(job_document: str, client: Any):
 
 
 
+def create_chroma_client(db_path: str="/Users/luisbarajas/Desktop/Projects/resume-match/job_vector_db") -> chromadb.PersistentClient:
+    """
+    Create a Chroma client bound to a local directory on disk.
+
+    The returned client controls a persistent vector store rooted at `db_path`.
+    Deleting this directory is enough to fully dispose of the underlying index.
+    """
+    raise NotImplementedError
 
 
+def get_or_create_jobs_collection(
+    client: chromadb.PersistentClient,
+    collection_name: str = "jobs",
+) -> Collection:
+    """
+    Retrieve the collection used to store job postings, creating it if needed.
 
-def run_offline_embedding_pipeline(
-    raw_job_records: Iterable[JobRecord],
+    Keeping the collection lookup in one place makes it easy to change naming
+    or configuration later without touching the rest of the offline pipeline.
+    """
+    raise NotImplementedError
+
+
+def prepare_chroma_job_data(
+    jobs: Iterable[dict[str, Any]],
+) -> tuple[list[str], list[list[float]], list[str], list[dict[str, Any]]]:
+    """
+    Transform normalized job records into aligned lists for Chroma insertion.
+
+    Extracts job IDs (job_id), embedding vectors, concatenated job documents, and metadata (search_term, job_description, job_apply_link, job_publisher, employer_name, job_title)
+    so they can be passed directly to `collection.add(...)` in a single call.
+    """
+    raise NotImplementedError
+
+
+def insert_jobs_into_collection(
+    collection: Collection,
+    ids: list[str],
+    embeddings: list[list[float]],
+    documents: list[str],
+    metadatas: list[dict[str, Any]],
     *,
-    model_name: str = "text-embedding-3-small",
-    index_name: str,
-    index_dimension: int,
-    embedding_client_kwargs: dict[str, Any] | None = None,
-    index_client_kwargs: dict[str, Any] | None = None,
+    batch_size: int = 500,
 ) -> None:
     """
-    High-level entry point that glues the offline steps together.
+    Bulk-insert job postings into the Chroma collection in fixed-size batches.
 
-    Collect raw jobs → normalize → embed → upsert into the vector index so the online
-    retrieval stack can operate on a fully prepared job corpus.
+    Splits the aligned id/embedding/document/metadata lists into chunks and calls
+    `collection.add(...)` repeatedly so large corpora can be indexed safely.
+    """
+    raise NotImplementedError
+
+
+
+
+
+def run_offline_chroma_pipeline(
+    raw_job_records: Iterable[dict[str, Any]],
+    *,
+    db_path: str,
+    collection_name: str = "jobs",
+    model_name: str = "text-embedding-3-small",
+    embedding_client_kwargs: dict[str, Any] | None = None,
+    chroma_client_kwargs: dict[str, Any] | None = None,
+    batch_size: int = 500,
+) -> None:
+    """
+    High-level entry point that glues the offline Chroma steps together.
+
+    Collect raw jobs → normalize → build documents → embed → prepare Chroma payloads
+    → create the local Chroma collection → insert all job vectors so the online
+    retrieval stack can query a fully prepared job corpus.
     """
     raise NotImplementedError
