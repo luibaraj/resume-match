@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Iterable
 
 import json
+import threading
 import time
 import os
 
@@ -186,14 +188,18 @@ def embed_job_postings(job_document: str, client: Any):
 
 
 
-def create_chroma_client(db_path: str="/Users/luisbarajas/Desktop/Projects/resume-match/job_vector_db") -> chromadb.PersistentClient:
+def create_chroma_client(
+    db_path: str="/Users/luisbarajas/Desktop/Projects/resume-match/job_vector_db",
+    **client_kwargs: Any,
+) -> chromadb.PersistentClient:
     """
     Create a Chroma client bound to a local directory on disk.
 
     The returned client controls a persistent vector store rooted at `db_path`.
     Deleting this directory is enough to fully dispose of the underlying index.
     """
-    raise NotImplementedError
+    os.makedirs(db_path, exist_ok=True)
+    return chromadb.PersistentClient(path=db_path, **client_kwargs)
 
 
 def get_or_create_jobs_collection(
@@ -206,7 +212,10 @@ def get_or_create_jobs_collection(
     Keeping the collection lookup in one place makes it easy to change naming
     or configuration later without touching the rest of the offline pipeline.
     """
-    raise NotImplementedError
+    return client.get_or_create_collection(
+        name=collection_name,
+        metadata={"source": "offline_pipeline"},
+    )
 
 
 def prepare_chroma_job_data(
@@ -218,7 +227,36 @@ def prepare_chroma_job_data(
     Extracts job IDs (job_id), embedding vectors, concatenated job documents, and metadata (search_term, job_description, job_apply_link, job_publisher, employer_name, job_title)
     so they can be passed directly to `collection.add(...)` in a single call.
     """
-    raise NotImplementedError
+    ids: list[str] = []
+    embeddings: list[list[float]] = []
+    documents: list[str] = []
+    metadatas: list[dict[str, Any]] = []
+
+    metadata_fields = [
+        "search_term",
+        "job_description",
+        "job_apply_link",
+        "job_publisher",
+        "employer_name",
+        "job_title",
+    ]
+
+    for job in jobs:
+        job_id = job.get("job_id")
+        embedding = job.get("embedding")
+        document = job.get("document") or job.get("job_document")
+
+        if job_id is None or embedding is None or document is None:
+            continue
+
+        ids.append(str(job_id))
+        embeddings.append(list(embedding))
+        documents.append(str(document))
+
+        metadata = {field: job.get(field) for field in metadata_fields}
+        metadatas.append(metadata)
+
+    return ids, embeddings, documents, metadatas
 
 
 def insert_jobs_into_collection(
@@ -236,8 +274,76 @@ def insert_jobs_into_collection(
     Splits the aligned id/embedding/document/metadata lists into chunks and calls
     `collection.add(...)` repeatedly so large corpora can be indexed safely.
     """
-    raise NotImplementedError
+    total = len(ids)
 
+    if not (len(embeddings) == total == len(documents) == len(metadatas)):
+        raise ValueError("IDs, embeddings, documents, and metadatas must have the same length.")
+    if batch_size <= 0:
+        raise ValueError("batch_size must be a positive integer.")
+    if total == 0:
+        return
+
+    for start in range(0, total, batch_size):
+        end = start + batch_size
+        collection.add(
+            ids=ids[start:end],
+            embeddings=embeddings[start:end],
+            documents=documents[start:end],
+            metadatas=metadatas[start:end],
+        )
+
+
+def _create_embedding_client_provider(
+    client_factory: Callable[[], Any],
+    *,
+    use_thread_local: bool,
+) -> Callable[[], Any]:
+    """
+    Definition:
+    Returns a callable that supplies embedding clients.
+    If use_thread_local is False, a single shared client instance is reused for all calls.
+    If True, each thread receives its own client instance stored in thread-local state.
+
+    Why:
+    Some clients are not thread-safe or become bottlenecks when shared across threads.
+    Using a separate client per thread avoids state conflicts and improves concurrent performance.
+    """
+    if not use_thread_local:
+        client = client_factory()
+        return lambda: client
+
+    local_state = threading.local()
+
+    def _provider() -> Any:
+        client = getattr(local_state, "embedding_client", None)
+        if client is None:
+            client = client_factory()
+            local_state.embedding_client = client
+        return client
+
+    return _provider
+
+
+def _process_job_record(
+    raw_job: dict[str, Any],
+    model_name: str,
+    embedding_client_provider: Callable[[], Any],
+) -> dict[str, Any]:
+    """Normalize a job, build its document, and attach its embedding."""
+    normalized_job = normalize_job(raw_job)
+    document = build_job_document(normalized_job)
+    embedding_client = embedding_client_provider()
+
+    if model_name == "text-embedding-3-small":
+        embedding = embed_job_postings(document, embedding_client)
+    else:
+        response = embedding_client.embeddings.create(model=model_name, input=document or "")
+        embedding = response.data[0].embedding
+
+    job_payload = dict(normalized_job)
+    job_payload["document"] = document
+    job_payload["embedding"] = embedding
+    return job_payload
 
 
 
@@ -251,12 +357,63 @@ def run_offline_chroma_pipeline(
     embedding_client_kwargs: dict[str, Any] | None = None,
     chroma_client_kwargs: dict[str, Any] | None = None,
     batch_size: int = 500,
+    max_workers: int | None = None,
 ) -> None:
     """
     High-level entry point that glues the offline Chroma steps together.
 
     Collect raw jobs → normalize → build documents → embed → prepare Chroma payloads
     → create the local Chroma collection → insert all job vectors so the online
-    retrieval stack can query a fully prepared job corpus.
+    retrieval stack can query a fully prepared job corpus. Set `max_workers` > 1 to
+    process job records concurrently.
     """
-    raise NotImplementedError
+    # collect embedding and chroma clients
+    embedding_client_kwargs = embedding_client_kwargs or {}
+    chroma_client_kwargs = chroma_client_kwargs or {}
+
+    # create client
+    client_factory = lambda: select_embedding_client(model_name=model_name, **embedding_client_kwargs)
+
+    # determine if running jobs in parallel and create the corresponding client provider
+    run_in_parallel = isinstance(max_workers, int) and max_workers > 1
+    worker_count = max_workers if run_in_parallel else 1
+    embedding_client_provider = _create_embedding_client_provider(
+        client_factory,
+        use_thread_local=run_in_parallel,
+    )
+    jobs_with_embeddings: list[dict[str, Any]] = []
+
+    if run_in_parallel:
+        # Run jobs through the pipeline in parallel
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(_process_job_record, raw_job, model_name, embedding_client_provider)
+                for raw_job in raw_job_records
+            ]
+            for future in futures:
+                jobs_with_embeddings.append(future.result())
+    else:
+        # Run jobs through the pipeline sequentially
+        for raw_job in raw_job_records:
+            jobs_with_embeddings.append(
+                _process_job_record(raw_job, model_name, embedding_client_provider)
+            )
+
+    # prepare data to store in the vector database
+    ids, embeddings, documents, metadatas = prepare_chroma_job_data(jobs_with_embeddings)
+    if not ids:
+        return
+
+    # create chroma client and jobs collection
+    client = create_chroma_client(db_path=db_path, **chroma_client_kwargs)
+    collection = get_or_create_jobs_collection(client, collection_name=collection_name)
+
+    # add the jobs into the collection
+    insert_jobs_into_collection(
+        collection,
+        ids,
+        embeddings,
+        documents,
+        metadatas,
+        batch_size=batch_size,
+    )
