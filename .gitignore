@@ -5,3 +5,4 @@ src/__pycache__
 env_vars.txt
 .pytest_cache
 example.ipynb
+example_data
