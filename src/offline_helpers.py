@@ -23,13 +23,21 @@ def normalize_job(job_record: dict[str, Any], api_key: str = os.getenv("OPENAI_A
     # LLM-extraction prompt
     prompt = (
         "Extract the following from the job description:\n"
-        "1. Years of project/internship experience required\n"
-        "2. Years of professional experience required\n"
-        "3. Required skills (list)\n"
-        "4. Preferred skills (list)\n"
-        "5. Responsibilities (list)\n"
+        "1. Years of project/internship experience required.\n"
+        "2. Years of professional experience required.\n"
+        "3. Required skills (list).\n"
+        "4. Preferred skills (list).\n"
+        "5. Responsibilities (list).\n"
         "Respond as JSON with keys project_internship_years, professional_years, "
         "required_skills, preferred_skills, responsibilities.\n\n"
+        "Rules:\n"
+        "- Do not infer or guess any requirement that is not explicitly stated.\n"
+        "- If project/internship years are not explicitly stated, assign 0.\n"
+        "- If professional years are not explicitly stated, assign 0.\n"
+        "- If professional years are not explicitly stated but the job title indicates high seniority (for example: principal, senior, founding), assign 10.\n"
+        "- If required skills are not explicitly stated, assign an empty list.\n"
+        "- If preferred skills are not explicitly stated, assign an empty list.\n"
+        "- If responsibilities are not explicitly stated, assign an empty list.\n\n"
         f"Job Title: {job_record.get('job_title', 'Unknown')}\n"
         f"Description:\n{description}"
     )
@@ -94,6 +102,7 @@ def normalize_job(job_record: dict[str, Any], api_key: str = os.getenv("OPENAI_A
         return {
             "job_id": job_record.get("job_id"),
             "job_title": job_record.get("job_title"),
+            "employer_name": job_record.get("employer_name"),
             "job_publisher": job_record.get("job_publisher"),
             "job_apply_link": job_record.get("job_apply_link"),
             "job_description": description,
@@ -118,17 +127,46 @@ def select_embedding_client(
     Keeps the model choice (`text-embedding-3-small`) and client configuration in one place
     so the rest of the offline pipeline can remain agnostic.
     """
-    raise NotImplementedError
+
+    # Create and return a lightweight client object that callers will reuse.
+    return OpenAI(**client_kwargs)
 
 
-def build_job_document(job: JobRecord) -> str:
+def build_job_document(job: dict) -> str:
     """
     Concatenate the normalized job details into a single text block.
 
     This text combines years of experience, required/preferred skills, and responsibilities
     to match the format expected by the embedding model.
     """
-    raise NotImplementedError
+    internship_years = job.get("project_internship_experience_years", 0)
+    professional_years = job.get("professional_experience_years", 0)
+
+    required_skills = job.get("required_skills") or []
+    preferred_skills = job.get("preferred_skills") or []
+    responsibilities = job.get("responsibilities") or []
+
+    def _stringify(values: Any, separator: str) -> str:
+        if not values:
+            return "None specified"
+        if isinstance(values, str):
+            return values.strip()
+        try:
+            return separator.join(str(item).strip() for item in values if str(item).strip())
+        except TypeError:
+            return str(values).strip()
+
+    required_skills_str = _stringify(required_skills, ", ")
+    preferred_skills_str = _stringify(preferred_skills, ", ")
+    responsibilities_str = _stringify(responsibilities, " ")
+
+    return (
+        f"Internship and project experience required: {internship_years} years.\n"
+        f"Professional work experience required: {professional_years} years.\n"
+        f"Required skills: {required_skills_str}.\n"
+        f"Preferred skills: {preferred_skills_str}.\n"
+        f"Responsibilities: {responsibilities_str}."
+    )
 
 
 def embed_job_postings(
