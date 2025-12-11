@@ -169,16 +169,17 @@ def build_job_document(job: dict) -> str:
     )
 
 
-def embed_job_postings(
-    jobs: Iterable[JobRecord], client: Any
-) -> list[EmbeddingPayload]:
+def embed_job_postings(job_document: str, client: Any):
     """
-    Iterate through normalized jobs, build their text documents, and embed them.
+    Embed the job_document
 
-    The returned payloads should include the embedding vector plus any metadata needed for
-    storage in the vector database/index.
+    The returned result should include the embedding vector
     """
-    raise NotImplementedError
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=job_document or "",
+    )
+    return response.data[0].embedding
 
 
 def init_vector_index(index_name: str, dimension: int, **client_kwargs: Any) -> Any:
