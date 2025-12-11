@@ -182,24 +182,10 @@ def embed_job_postings(job_document: str, client: Any):
     return response.data[0].embedding
 
 
-def init_vector_index(index_name: str, dimension: int, **client_kwargs: Any) -> Any:
-    """
-    Connect to (or create) the vector database/index that will store job embeddings.
-
-    Handles all Pinecone-like setup so the upsert step can focus only on sending vectors.
-    """
-    raise NotImplementedError
 
 
-def upsert_job_embeddings(
-    index: Any, embeddings: Iterable[EmbeddingPayload], batch_size: int = 100
-) -> None:
-    """
-    Send the embedding payloads to the vector index, chunking the uploads when helpful.
 
-    Batching keeps the offline job efficient when processing large corpora of positions.
-    """
-    raise NotImplementedError
+
 
 
 def run_offline_embedding_pipeline(
