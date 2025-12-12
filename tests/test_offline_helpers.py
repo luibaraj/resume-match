@@ -358,7 +358,14 @@ def test_run_offline_chroma_pipeline_sequential_path(monkeypatch):
     processed_jobs: list[str] = []
 
     # Pretend _process_job_record returns normalized payloads and track call order.
-    def fake_process(raw_job, model_name, _provider):
+    def fake_process(
+        raw_job,
+        model_name,
+        _provider,
+        max_project_internship_years=None,
+        max_professional_years=None,
+        no_internships=True,
+    ):
         processed_jobs.append(raw_job["raw_id"])
         return {
             "job_id": raw_job["raw_id"],
@@ -417,7 +424,14 @@ def test_run_offline_chroma_pipeline_threaded_path(monkeypatch):
     raw_jobs = [{"raw_id": str(i)} for i in range(3)]
     processed_jobs: list[str] = []
 
-    def fake_process(raw_job, model_name, _provider):
+    def fake_process(
+        raw_job,
+        model_name,
+        _provider,
+        max_project_internship_years=None,
+        max_professional_years=None,
+        no_internships=True,
+    ):
         processed_jobs.append(raw_job["raw_id"])
         return {
             "job_id": raw_job["raw_id"],

@@ -9,6 +9,7 @@ import json
 import threading
 import time
 import os
+import re
 
 from openai import OpenAI
 import chromadb
@@ -334,9 +335,26 @@ def _process_job_record(
     raw_job: dict[str, Any],
     model_name: str,
     embedding_client_provider: Callable[[], Any],
-) -> dict[str, Any]:
-    """Normalize a job, build its document, and attach its embedding."""
+    max_project_internship_years: float | None = None,
+    max_professional_years: float | None = None,
+    no_internships: bool = True
+) -> dict[str, Any] | None:
+    """Normalize a job, apply experience filters, build its document, and attach its embedding."""
     normalized_job = normalize_job(raw_job)
+
+    internship_years = normalized_job.get("project_internship_experience_years") or 0
+    professional_years = normalized_job.get("professional_experience_years") or 0
+
+    if max_project_internship_years is not None and internship_years >= max_project_internship_years:
+        return None
+    if max_professional_years is not None and professional_years >= max_professional_years:
+        return None
+
+    INTERN_TITLE_PATTERN = re.compile(r"\b(intern(ship)?|co-?op)\b", re.IGNORECASE)
+    title = (normalized_job.get("job_title") or "")
+    if no_internships and INTERN_TITLE_PATTERN.search(title):
+        return None
+
     document = build_job_document(normalized_job)
     embedding_client = embedding_client_provider()
 
@@ -360,6 +378,9 @@ def run_offline_chroma_pipeline(
     db_path: str,
     collection_name: str = "jobs",
     model_name: str = "text-embedding-3-small",
+    max_project_internship_years: float | None = None,
+    max_professional_years: float | None = None,
+    no_internships: bool=True,
     embedding_client_kwargs: dict[str, Any] | None = None,
     chroma_client_kwargs: dict[str, Any] | None = None,
     batch_size: int = 500,
@@ -372,6 +393,9 @@ def run_offline_chroma_pipeline(
     → create the local Chroma collection → insert all job vectors so the online
     retrieval stack can query a fully prepared job corpus. Set `max_workers` > 1 to
     process job records concurrently.
+
+    Use `max_project_internship_years` and `max_professional_years` to skip jobs whose
+    required experience is at or above the provided threshold(s).
     """
     # collect embedding and chroma clients
     embedding_client_kwargs = embedding_client_kwargs or {}
@@ -393,17 +417,34 @@ def run_offline_chroma_pipeline(
         # Run jobs through the pipeline in parallel
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [
-                executor.submit(_process_job_record, raw_job, model_name, embedding_client_provider)
+                executor.submit(
+                    _process_job_record,
+                    raw_job,
+                    model_name,
+                    embedding_client_provider,
+                    max_project_internship_years,
+                    max_professional_years,
+                    no_internships,
+                )
                 for raw_job in raw_job_records
             ]
             for future in futures:
-                jobs_with_embeddings.append(future.result())
+                result = future.result()
+                if result is not None:
+                    jobs_with_embeddings.append(result)
     else:
         # Run jobs through the pipeline sequentially
         for raw_job in raw_job_records:
-            jobs_with_embeddings.append(
-                _process_job_record(raw_job, model_name, embedding_client_provider)
+            result = _process_job_record(
+                raw_job,
+                model_name,
+                embedding_client_provider,
+                max_project_internship_years,
+                max_professional_years,
+                no_internships,
             )
+            if result is not None:
+                jobs_with_embeddings.append(result)
 
     # prepare data to store in the vector database
     ids, embeddings, documents, metadatas = prepare_chroma_job_data(jobs_with_embeddings)
