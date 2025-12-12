@@ -231,6 +231,7 @@ def prepare_chroma_job_data(
     embeddings: list[list[float]] = []
     documents: list[str] = []
     metadatas: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
 
     metadata_fields = [
         "search_term",
@@ -249,7 +250,12 @@ def prepare_chroma_job_data(
         if job_id is None or embedding is None or document is None:
             continue
 
-        ids.append(str(job_id))
+        str_job_id = str(job_id)
+        if str_job_id in seen_ids:
+            continue
+
+        seen_ids.add(str_job_id)
+        ids.append(str_job_id)
         embeddings.append(list(embedding))
         documents.append(str(document))
 
