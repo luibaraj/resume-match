@@ -75,6 +75,7 @@ def scrape_jobs(query: str, country: str, start_page: int, num_pages: int = 10, 
             )
             if attempt == max_attempts:
                 break
+            # Exponential backoff to respect API limits and avoid hammering the server.
             backoff_seconds = backoff_base_seconds * (2 ** (attempt - 1))
             time.sleep(backoff_seconds)
             attempt += 1

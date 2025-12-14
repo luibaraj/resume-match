@@ -21,10 +21,10 @@ from .normalize_helpers import clean_text_blob
 
 def normalize_job(job_record: dict[str, Any], api_key: str = os.getenv("OPENAI_API_KEY"), retries: int = 5) -> dict[str, Any]:
     _client = OpenAI(api_key=api_key)
-    # normalize text
+    # Normalize raw description before handing it to the model.
     description = clean_text_blob(job_record.get("job_description", ""))
 
-    # LLM-extraction prompt
+    # Deterministic prompt: the same layout keeps parsing predictable.
     prompt = (
         "Extract the following from the job description:\n"
         "1. Years of project/internship experience required.\n"
@@ -46,7 +46,7 @@ def normalize_job(job_record: dict[str, Any], api_key: str = os.getenv("OPENAI_A
         f"Description:\n{description}"
     )
 
-    # required fields to be extracted from each job posting
+    # Required fields to be extracted from each job posting.
     required_keys = [
         "project_internship_years",
         "professional_years",
@@ -55,7 +55,7 @@ def normalize_job(job_record: dict[str, Any], api_key: str = os.getenv("OPENAI_A
         "responsibilities",
     ]
 
-    # LLM-extraction + error handling
+    # LLM-extraction + error handling with exponential backoff on failures.
     for attempt in range(retries):
         try:
             response = _client.chat.completions.create(
@@ -85,7 +85,7 @@ def normalize_job(job_record: dict[str, Any], api_key: str = os.getenv("OPENAI_A
             time.sleep(2 ** attempt)
             continue
 
-        # Parse JSON
+        # Parse JSON from the model response.
         try:
             raw = response.choices[0].message.content
             parsed = json.loads(raw)
@@ -95,7 +95,7 @@ def normalize_job(job_record: dict[str, Any], api_key: str = os.getenv("OPENAI_A
             time.sleep(2 ** attempt)
             continue
 
-        # Validate
+        # Validate schema before accepting.
         if not all(k in parsed for k in required_keys):
             if attempt == retries - 1: # ERROR: invalid schema
                 raise ValueError("Model returned incomplete structured output.")
@@ -179,6 +179,7 @@ def embed_job_postings(job_document: str, client: Any):
 
     The returned result should include the embedding vector
     """
+    # Keep API call tiny: model name and input are the only changing parts.
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=job_document or "",
@@ -244,6 +245,7 @@ def prepare_chroma_job_data(
     ]
 
     for job in jobs:
+        # Only accept complete records that have not been seen before.
         job_id = job.get("job_id")
         embedding = job.get("embedding")
         document = job.get("document") or job.get("job_document")
@@ -345,6 +347,7 @@ def _process_job_record(
     internship_years = normalized_job.get("project_internship_experience_years") or 0
     professional_years = normalized_job.get("professional_experience_years") or 0
 
+    # Skip records that exceed the configured experience thresholds.
     if max_project_internship_years is not None and internship_years >= max_project_internship_years:
         return None
     if max_professional_years is not None and professional_years >= max_professional_years:
@@ -358,6 +361,7 @@ def _process_job_record(
     document = build_job_document(normalized_job)
     embedding_client = embedding_client_provider()
 
+    # Allow pluggable embedding models without changing the caller contract.
     if model_name == "text-embedding-3-small":
         embedding = embed_job_postings(document, embedding_client)
     else:
@@ -414,7 +418,7 @@ def run_offline_chroma_pipeline(
     jobs_with_embeddings: list[dict[str, Any]] = []
 
     if run_in_parallel:
-        # Run jobs through the pipeline in parallel
+        # Run jobs through the pipeline in parallel to speed up large batches.
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = [
                 executor.submit(
@@ -433,7 +437,7 @@ def run_offline_chroma_pipeline(
                 if result is not None:
                     jobs_with_embeddings.append(result)
     else:
-        # Run jobs through the pipeline sequentially
+        # Run jobs through the pipeline sequentially when parallelism is not requested.
         for raw_job in raw_job_records:
             result = _process_job_record(
                 raw_job,
@@ -446,16 +450,16 @@ def run_offline_chroma_pipeline(
             if result is not None:
                 jobs_with_embeddings.append(result)
 
-    # prepare data to store in the vector database
+    # Prepare aligned payloads for bulk insertion into Chroma.
     ids, embeddings, documents, metadatas = prepare_chroma_job_data(jobs_with_embeddings)
     if not ids:
         return
 
-    # create chroma client and jobs collection
+    # Create chroma client and jobs collection.
     client = create_chroma_client(db_path=db_path, **chroma_client_kwargs)
     collection = get_or_create_jobs_collection(client, collection_name=collection_name)
 
-    # add the jobs into the collection
+    # Add the jobs into the collection in fixed-size batches.
     insert_jobs_into_collection(
         collection,
         ids,

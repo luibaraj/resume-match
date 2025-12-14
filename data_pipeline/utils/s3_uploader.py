@@ -77,6 +77,7 @@ def upload_job_records_to_s3(job_records: list) -> Tuple[bool, Optional[str]]:
         region_name=config["AWS_DEFAULT_REGION"],
     )
 
+    # Retry uploads to smooth over transient S3/API issues.
     attempts = 5
     for attempt in range(1, attempts + 1):
         try:
