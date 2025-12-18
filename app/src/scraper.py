@@ -3,8 +3,24 @@ import time
 
 import requests
 
+try:
+    from airflow.models import Variable  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - used outside Airflow
+    Variable = None  # type: ignore
 
 
+
+
+
+def _resolve_api_key() -> str:
+    if Variable is not None:
+        value = Variable.get("JSEARCH_API_KEY", default_var=None)  # type: ignore[arg-type]
+        if value:
+            return value
+    env_value = os.environ.get("JSEARCH_API_KEY")
+    if not env_value:
+        raise RuntimeError("JSEARCH_API_KEY not set in environment or Airflow Variables.")
+    return env_value
 
 
 def scrape_jobs(query: str, country: str, start_page: int, num_pages: int = 10, max_attempts: int = 3, backoff_base_seconds: int=1) -> dict:
@@ -21,7 +37,7 @@ def scrape_jobs(query: str, country: str, start_page: int, num_pages: int = 10, 
         successful request in the order they were retrieved.
     """
     # Load the required API token and initialize pagination state.
-    api_key = os.environ["JSEARCH_API_KEY"]
+    api_key = _resolve_api_key()
     all_results = []
     current_page = start_page
     url = "https://api.openwebninja.com/jsearch/search"

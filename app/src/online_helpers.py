@@ -13,12 +13,21 @@ import chromadb
 from chromadb.api.models.Collection import Collection
 from openai import OpenAI
 
-from .normalize_helpers import clean_text_blob
-from .offline_helpers import (
-    build_job_document,
-    embed_job_postings,
-    select_embedding_client,
-)
+# Prefer local package imports; fall back to absolute when executed as a script.
+try:
+    from .normalize_helpers import clean_text_blob  # type: ignore
+    from .offline_helpers import (  # type: ignore
+        build_job_document,
+        embed_job_postings,
+        select_embedding_client,
+    )
+except ImportError:  # pragma: no cover - script execution fallback
+    from src.normalize_helpers import clean_text_blob  # type: ignore
+    from src.offline_helpers import (  # type: ignore
+        build_job_document,
+        embed_job_postings,
+        select_embedding_client,
+    )
 
 
 def normalize_profile(
@@ -504,8 +513,8 @@ def find_reranked_jobs_for_profile(
     *,
     db_path: str,
     profile_id: str | None = None,
-    retrieve_top_k: int = 50,
-    reranked_top_n: int = 10,
+    retrieve_top_k: int = 100,
+    reranked_top_n: int = 20,
     api_key: str | None = None,
     embedding_model: str = "text-embedding-3-small",
     scoring_model: str = "gpt-4o-mini",

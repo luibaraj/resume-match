@@ -2,25 +2,57 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Iterable
-
 import json
-import threading
-import time
 import os
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any, Callable, Iterable
 
-from openai import OpenAI
 import chromadb
 from chromadb.api.models.Collection import Collection
+from openai import OpenAI
 
-from .normalize_helpers import clean_text_blob
+# Prefer package-relative imports; fall back to absolute when invoked as a module script.
+try:
+    from .normalize_helpers import clean_text_blob  # type: ignore
+except ImportError:  # pragma: no cover - script execution fallback
+    from src.normalize_helpers import clean_text_blob  # type: ignore
 
 
 
-def normalize_job(job_record: dict[str, Any], api_key: str = os.getenv("OPENAI_API_KEY"), retries: int = 5) -> dict[str, Any]:
-    _client = OpenAI(api_key=api_key)
+try:
+    from airflow.models import Variable  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - fallback shim when Airflow missing
+    Variable = None  # type: ignore
+
+
+_MISSING = object()
+
+
+def _get_runtime_variable(key: str, default: Any = _MISSING) -> Any:
+    """Fetch configuration from Airflow Variables when available, else env vars."""
+    if Variable is not None:
+        try:
+            return Variable.get(key)  # type: ignore[arg-type]
+        except KeyError:
+            pass
+    if key in os.environ:
+        return os.environ[key]
+    if default is not _MISSING:
+        return default
+    raise KeyError(f"Missing required configuration value: {key}")
+
+
+def normalize_job(
+    job_record: dict[str, Any],
+    api_key: str | None = None,
+    retries: int = 5,
+) -> dict[str, Any]:
+    resolved_api_key = api_key or _get_runtime_variable("OPENAI_API_KEY")
+    _client = OpenAI(api_key=resolved_api_key)
     # Normalize raw description before handing it to the model.
     description = clean_text_blob(job_record.get("job_description", ""))
 
@@ -133,7 +165,8 @@ def select_embedding_client(
     """
 
     # Create and return a lightweight client object that callers will reuse.
-    return OpenAI(**client_kwargs)
+    api_key = client_kwargs.pop("api_key", None) or _get_runtime_variable("OPENAI_API_KEY")
+    return OpenAI(api_key=api_key, **client_kwargs)
 
 
 def build_job_document(job: dict) -> str:
@@ -190,8 +223,11 @@ def embed_job_postings(job_document: str, client: Any):
 
 
 
+DEFAULT_DB_DIR = Path(__file__).resolve().parents[1] / "job_vector_db"
+
+
 def create_chroma_client(
-    db_path: str="/Users/luisbarajas/Desktop/Projects/resume-match/job_vector_db",
+    db_path: str | os.PathLike[str] | None = None,
     **client_kwargs: Any,
 ) -> chromadb.PersistentClient:
     """
@@ -200,8 +236,9 @@ def create_chroma_client(
     The returned client controls a persistent vector store rooted at `db_path`.
     Deleting this directory is enough to fully dispose of the underlying index.
     """
-    os.makedirs(db_path, exist_ok=True)
-    return chromadb.PersistentClient(path=db_path, **client_kwargs)
+    base_path = Path(db_path or os.environ.get("JOB_VECTOR_DB_PATH", DEFAULT_DB_DIR))
+    os.makedirs(base_path, exist_ok=True)
+    return chromadb.PersistentClient(path=str(base_path), **client_kwargs)
 
 
 def get_or_create_jobs_collection(

@@ -1,0 +1,8 @@
+boto3
+botocore
+chromadb
+fastapi
+openai
+pydantic
+requests
+uvicorn

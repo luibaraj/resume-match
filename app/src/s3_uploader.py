@@ -11,6 +11,20 @@ from typing import Optional, Tuple
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
+try:
+    from airflow.models import Variable  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover - used outside Airflow
+    Variable = None  # type: ignore
+
+
+def _get_value(key: str) -> Optional[str]:
+    """Resolve config values from Airflow Variables or env vars."""
+    if Variable is not None:
+        value = Variable.get(key, default_var=None)  # type: ignore[arg-type]
+        if value:
+            return value
+    return os.environ.get(key)
+
 
 def _load_env_config() -> Optional[dict]:
     """
@@ -29,7 +43,7 @@ def _load_env_config() -> Optional[dict]:
     config = {}
     missing = []
     for var in required_vars:
-        value = os.environ.get(var)
+        value = _get_value(var)
         if not value:
             missing.append(var)
         else:
