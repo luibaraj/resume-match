@@ -2,6 +2,10 @@
 .DS_store
 __pycache__
 env_vars.txt
+**/env_vars.txt
+**/.env
+**/.env.local
+app/.env.local
 .pytest_cache
 example.ipynb
 vector_db
